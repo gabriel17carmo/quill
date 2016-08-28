@@ -31,14 +31,6 @@ class Selection {
         setTimeout(this.update.bind(this, Emitter.sources.USER), 100);
       });
     });
-    let scrollTop;
-    this.root.addEventListener('blur', () => {
-      scrollTop = this.root.scrollTop;
-    });
-    this.root.addEventListener('focus', () => {
-      if (scrollTop == null) return;
-      this.root.scrollTop = scrollTop;
-    });
     this.emitter.on(Emitter.events.EDITOR_CHANGE, (type, delta) => {
       if (type === Emitter.events.TEXT_CHANGE && delta.length() > 0) {
         this.update(Emitter.sources.SILENT);
@@ -60,7 +52,9 @@ class Selection {
 
   focus() {
     if (this.hasFocus()) return;
+    let bodyTop = document.body.scrollTop;
     this.root.focus();
+    document.body.scrollTop = bodyTop;
     this.setRange(this.savedRange);
   }
 
@@ -201,10 +195,10 @@ class Selection {
     let bounds = this.getBounds(range.index, range.length);
     if (bounds == null) return;
     if (this.root.offsetHeight < bounds.bottom) {
-      let [line, offset] = this.scroll.line(range.index + range.length);
+      let [line, ] = this.scroll.line(range.index + range.length);
       this.root.scrollTop = line.domNode.offsetTop + line.domNode.offsetHeight - this.root.offsetHeight;
     } else if (bounds.top < 0) {
-      let [line, offset] = this.scroll.line(range.index);
+      let [line, ] = this.scroll.line(range.index);
       this.root.scrollTop = line.domNode.offsetTop;
     }
   }

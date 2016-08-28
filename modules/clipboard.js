@@ -3,7 +3,6 @@ import Parchment from 'parchment';
 import Quill from '../core/quill';
 import logger from '../core/logger';
 import Module from '../core/module';
-import { BlockEmbed } from '../blots/block';
 
 import { AlignStyle } from '../formats/align';
 import { BackgroundStyle } from '../formats/background';
@@ -14,6 +13,18 @@ import { SizeStyle } from '../formats/size';
 
 let debug = logger('quill:clipboard');
 
+const CLIPBOARD_CONFIG = [
+  [Node.TEXT_NODE, matchText],
+  ['br', matchBreak],
+  [Node.ELEMENT_NODE, matchNewline],
+  [Node.ELEMENT_NODE, matchBlot],
+  [Node.ELEMENT_NODE, matchSpacing],
+  [Node.ELEMENT_NODE, matchAttributor],
+  [Node.ELEMENT_NODE, matchStyles],
+  ['b', matchAlias.bind(matchAlias, 'bold')],
+  ['i', matchAlias.bind(matchAlias, 'italic')],
+  ['style', matchIgnore]
+];
 
 const STYLE_ATTRIBUTORS = [
   AlignStyle,
@@ -30,16 +41,13 @@ const STYLE_ATTRIBUTORS = [
 
 class Clipboard extends Module {
   constructor(quill, options) {
-    if (options.matchers !== Clipboard.DEFAULTS.matchers) {
-      options.matchers = Clipboard.DEFAULTS.matchers.concat(options.matchers);
-    }
     super(quill, options);
     this.quill.root.addEventListener('paste', this.onPaste.bind(this));
     this.container = this.quill.addContainer('ql-clipboard');
     this.container.setAttribute('contenteditable', true);
     this.container.setAttribute('tabindex', -1);
     this.matchers = [];
-    this.options.matchers.forEach((pair) => {
+    CLIPBOARD_CONFIG.concat(this.options.matchers).forEach((pair) => {
       this.addMatcher(...pair);
     });
   }
@@ -107,31 +115,32 @@ class Clipboard extends Module {
   onPaste(e) {
     if (e.defaultPrevented) return;
     let range = this.quill.getSelection();
-    let clipboard = e.clipboardData || window.clipboardData;
     let delta = new Delta().retain(range.index).delete(range.length);
-    this.container.focus();
-    setTimeout(() => {
-      let html = this.container.innerHTML;
+    let types = e.clipboardData.types;
+    if ((types instanceof DOMStringList && types.contains("text/html")) ||
+        (types.indexOf && types.indexOf('text/html') !== -1)) {
+      this.container.innerHTML = e.clipboardData.getData('text/html');
+      paste.call(this);
+      e.preventDefault();
+    } else {
+      let bodyTop = document.body.scrollTop;
+      this.container.focus();
+      setTimeout(() => {
+        paste.call(this);
+        document.body.scrollTop = bodyTop;
+        this.quill.selection.scrollIntoView();
+      }, 1);
+    }
+    function paste() {
       delta = delta.concat(this.convert());
       this.quill.updateContents(delta, Quill.sources.USER);
       // range.length contributes to delta.length()
       this.quill.setSelection(delta.length() - range.length, Quill.sources.SILENT);
-      this.quill.selection.scrollIntoView();
-    }, 1);
+    }
   }
 }
 Clipboard.DEFAULTS = {
-  matchers: [
-    [Node.TEXT_NODE, matchText],
-    ['br', matchBreak],
-    [Node.ELEMENT_NODE, matchNewline],
-    [Node.ELEMENT_NODE, matchBlot],
-    [Node.ELEMENT_NODE, matchSpacing],
-    [Node.ELEMENT_NODE, matchAttributor],
-    [Node.ELEMENT_NODE, matchStyles],
-    ['b', matchAlias.bind(matchAlias, 'bold')],
-    ['i', matchAlias.bind(matchAlias, 'italic')]
-  ]
+  matchers: []
 };
 
 
@@ -186,7 +195,7 @@ function matchBlot(node, delta) {
     let value = match.value(node);
     if (value != null) {
       embed[match.blotName] = value;
-      delta.insert(embed, match.formats(node));
+      delta = new Delta().insert(embed, match.formats(node));
     }
   } else if (typeof match.formats === 'function') {
     let formats = { [match.blotName]: match.formats(node) };
@@ -200,6 +209,10 @@ function matchBreak(node, delta) {
     delta.insert('\n');
   }
   return delta;
+}
+
+function matchIgnore(node, delta) {
+  return new Delta();
 }
 
 function matchNewline(node, delta) {
